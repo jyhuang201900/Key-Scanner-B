@@ -1,79 +1,64 @@
-"""存储管理"""
-import json
+"""Append-only storage for leaked account lines."""
 import os
-from datetime import datetime
-from typing import List, Dict
+import threading
+from typing import Dict, Iterable, List
+
 import config
 
+
 class Storage:
-    def __init__(self):
-        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-    
+    def __init__(self, path: str = config.RESULTS_FILE):
+        self.path = path
+        self._lock = threading.Lock()
+        self._seen = set(self.load_lines())
+
+    def load_lines(self) -> List[str]:
+        if not os.path.exists(self.path):
+            return []
+
+        with open(self.path, "r", encoding="utf-8", errors="replace") as handle:
+            return [line.strip() for line in handle if line.strip()]
+
+    def append_line(self, line: str) -> bool:
+        """Append one unique line immediately and return True when written."""
+        clean = line.strip()
+        if not clean:
+            return False
+
+        with self._lock:
+            if clean in self._seen:
+                return False
+
+            parent = os.path.dirname(os.path.abspath(self.path))
+            os.makedirs(parent, exist_ok=True)
+            with open(self.path, "a", encoding="utf-8", newline="\n") as handle:
+                handle.write(clean + "\n")
+                handle.flush()
+
+            self._seen.add(clean)
+            return True
+
     def save_scan_result(self, result: Dict) -> str:
-        """保存扫描结果"""
-        data = {
-            'timestamp': datetime.now().isoformat(),
-            'scan_info': {
-                'total_queries': result.get('total_queries', 0),
-                'total_found': result.get('total_found', 0),
-                'unique_keys': result.get('unique_keys', 0),
-                'elapsed_time': result.get('elapsed_time', 0)
-            },
-            'keys': result.get('keys', [])
-        }
-        
-        with open(config.FOUND_KEYS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        
-        return config.FOUND_KEYS_FILE
-    
-    def save_validation_result(self, result: Dict) -> str:
-        """保存验证结果"""
-        data = {
-            'timestamp': datetime.now().isoformat(),
-            'validation_info': {
-                'total': result.get('total', 0),
-                'valid_count': result.get('valid_count', 0),
-                'invalid_count': result.get('invalid_count', 0),
-                'elapsed_time': result.get('elapsed_time', 0)
-            },
-            'valid_keys': result.get('valid', []),
-            'invalid_keys': result.get('invalid', [])
-        }
-        
-        with open(config.VALID_KEYS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        
-        return config.VALID_KEYS_FILE
-    
+        """Compatibility wrapper used by the API and CLI."""
+        for line in result.get("keys", []):
+            self.append_line(line)
+        return self.path
+
+    def export_plain_text(self, keys: Iterable[str], filename: str) -> str:
+        """Export lines to a specific text file, one line at a time."""
+        target = Storage(filename)
+        for key in keys:
+            target.append_line(key)
+        return target.path
+
+    # Compatibility methods for the existing API.
     def load_found_keys(self) -> List[str]:
-        """加载找到的密钥"""
-        if not os.path.exists(config.FOUND_KEYS_FILE):
-            return []
-        
-        try:
-            with open(config.FOUND_KEYS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get('keys', [])
-        except:
-            return []
-    
+        return self.load_lines()
+
     def load_valid_keys(self) -> List[str]:
-        """加载有效密钥"""
-        if not os.path.exists(config.VALID_KEYS_FILE):
-            return []
-        
-        try:
-            with open(config.VALID_KEYS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get('valid_keys', [])
-        except:
-            return []
-    
-    def export_plain_text(self, keys: List[str], filename: str) -> str:
-        """导出为纯文本"""
-        filepath = f'{config.OUTPUT_DIR}/{filename}'
-        with open(filepath, 'w', encoding='utf-8') as f:
-            for key in keys:
-                f.write(f"{key}\n")
-        return filepath
+        return self.load_lines()
+
+    def save_validation_result(self, result: Dict) -> str:
+        for line in result.get("valid", []):
+            self.append_line(line)
+        return self.path

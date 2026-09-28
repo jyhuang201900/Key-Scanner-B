@@ -1,121 +1,61 @@
-# Gemini Key Scanner
+# Outlook Leak Line Scanner
 
-现代化的Gemini API密钥扫描器，支持GitHub搜索和密钥验证。
+在 GitHub 代码中扫描下面这种泄露行：
 
-## 特性
+```text
+邮箱----密码----client_id----refresh_token
+```
 
-- 🔍 GitHub代码搜索，多维度查询策略
-- ✅ 并发密钥验证，支持15线程
-- 🎯 智能过滤，去除测试和示例密钥
-- 📊 JSON格式存储，便于数据分析
-- 🌐 RESTful API，支持远程调用
-- 💻 命令行工具，操作简单
+命中后不验证，不做 JSON，不拆字段，直接把完整原始行逐行追加到：
 
-## 快速开始
+```text
+results.txt
+```
 
-### 1. 安装依赖
+## GitHub Actions
+
+工作流文件：
+
+```text
+.github/workflows/scan.yml
+```
+
+运行方式：
+
+1. 在仓库 `Settings -> Secrets and variables -> Actions` 添加 `GH_TOKEN`。
+2. `GH_TOKEN` 使用有 `public_repo` 或 `repo` 权限的 GitHub Token。
+3. 打开 `Actions -> Scan Outlook Leak Lines -> Run workflow`。
+4. 扫描完成后在本次运行的 `Artifacts` 下载 `outlook-results-*`。
+
+工作流默认每 6 小时运行一次。
+
+## 本地运行
 
 ```bash
 pip install -r requirements.txt
-```
 
-### 2. 设置GitHub Token
-
-```bash
-export GITHUB_TOKEN=your_github_token_here
-```
-
-### 3. 运行扫描
-
-```bash
-# 仅扫描
+export GITHUB_TOKEN=ghp_xxx
 python cli.py scan
-
-# 仅验证
-python cli.py validate
-
-# 扫描+验证
-python cli.py both --export-txt
 ```
 
-### 4. 启动API服务
+Windows PowerShell：
 
-```bash
-python api.py
+```powershell
+$env:GITHUB_TOKEN="ghp_xxx"
+python cli.py scan
 ```
 
-## API端点
+## 可调配置
 
-- `GET /` - API信息
-- `POST /scan` - 执行扫描
-- `POST /validate` - 验证密钥
-- `GET /keys` - 获取所有密钥
-- `GET /valid-keys` - 获取有效密钥
-- `GET /stats` - 获取统计信息
+通过环境变量覆盖：
 
-## GitHub Actions部署
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SEARCH_QUERIES` | 内置 5 组查询 | 使用 `|` 分隔多个 GitHub 搜索语句 |
+| `MAX_PAGES` | `3` | 每个搜索语句最多拉取页数 |
+| `MAX_FILES_PER_SCAN` | `500` | 单次最多下载匹配文件数 |
+| `MAX_FILE_BYTES` | `2000000` | 超过该大小的文件跳过 |
+| `MIN_REFRESH_TOKEN_LENGTH` | `80` | refresh token 最短长度 |
+| `RESULTS_FILE` | `results.txt` | 输出路径 |
 
-创建 `.github/workflows/scan.yml`:
-
-```yaml
-name: Scan Keys
-
-on:
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
-
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - run: pip install -r requirements.txt
-      - run: python cli.py both --export-txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - uses: actions/upload-artifact@v3
-        with:
-          name: results
-          path: output/
-```
-
-## 项目结构
-
-```
-gemini-key-scanner/
-├── config.py       # 配置文件
-├── scanner.py      # 核心扫描器
-├── validator.py    # 密钥验证器
-├── storage.py      # 存储管理
-├── api.py          # Flask API
-├── cli.py          # 命令行工具
-├── requirements.txt
-└── output/         # 输出目录
-    ├── found_keys.json
-    └── valid_keys.json
-```
-
-## 配置说明
-
-编辑 `config.py` 自定义:
-
-- `SEARCH_PREFIX`: 密钥前缀 (默认: AIzaSy)
-- `MIN_KEY_LENGTH`: 最小长度 (默认: 39)
-- `MAX_WORKERS`: 验证线程数 (默认: 15)
-- `EXCLUDE_PATTERNS`: 过滤关键词
-
-## 注意事项
-
-- 遵守GitHub API速率限制
-- 不要滥用他人密钥
-- 定期清理output目录
-- 生产环境建议使用环境变量
-
-## License
-
-MIT
-"# Key-Scanner-B" 
+`results.txt` 已加入 `.gitignore`，不要提交到仓库。

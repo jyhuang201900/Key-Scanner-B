@@ -1,45 +1,49 @@
-name: Scan Gemini Keys
+name: Scan Outlook Leak Lines
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-          cache: 'pip'
-      
-      - name: Install Dependencies
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
         run: pip install -r requirements.txt
-      
-      - name: Run Scanner
+
+      - name: Scan
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: python cli.py both --export-txt
-      
-      - name: Upload Results
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+        run: python cli.py scan
+
+      - name: Add summary
+        if: always()
+        run: |
+          echo "## Outlook leak scan" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f results.txt ]; then
+            echo "Saved lines: $(wc -l < results.txt)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No results.txt was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scan-results-${{ github.run_number }}
-          path: output/
-          retention-days: 30
-      
-      - name: Summary
-        run: |
-          echo "## 扫描结果" >> $GITHUB_STEP_SUMMARY
-          if [ -f output/found_keys.json ]; then
-            echo "✅ 扫描完成" >> $GITHUB_STEP_SUMMARY
-            echo "📊 结果已保存到 Artifacts" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ 扫描失败" >> $GITHUB_STEP_SUMMARY
-          fi
+          name: outlook-results-${{ github.run_number }}
+          path: results.txt
+          if-no-files-found: warn
+          retention-days: 7

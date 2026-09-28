@@ -1,148 +1,67 @@
-# GitHub 部署指南
+# GitHub Actions 部署
 
-## 方法一：GitHub Actions 自动运行
+## 1. 上传代码
 
-### 1. 创建GitHub仓库
-```bash
-cd gemini-key-scanner
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/jyhuang201900/gemini-key-scanner.git
-git push -u origin main
+把本项目推到你的 GitHub 仓库。
+
+## 2. 添加 Token
+
+进入：
+
+```text
+Settings -> Secrets and variables -> Actions -> New repository secret
 ```
 
-### 2. 设置GitHub Token Secret
-1. 获取GitHub Token
-   - 访问 https://github.com/settings/tokens
-   - 点击 "Generate new token (classic)"
-   - 勾选 `repo` 和 `workflow` 权限
-   - 生成并复制token
+添加：
 
-2. 添加Secret
-   - 进入你的仓库
-   - Settings → Secrets and variables → Actions
-   - 点击 "New repository secret"
-   - Name: `GH_TOKEN`
-   - Value: 粘贴你的token
-   - 点击 "Add secret"
-
-### 3. 启用GitHub Actions
-1. 进入仓库的 Actions 标签
-2. 点击 "I understand my workflows, go ahead and enable them"
-3. 点击 "Scan Gemini Keys" 工作流
-4. 点击 "Run workflow" 手动触发
-
-### 4. 查看结果
-- Actions 页面查看运行日志
-- 完成后在 Artifacts 下载结果文件
-- 自动每6小时运行一次
-
----
-
-## 方法二：Vercel/Railway 部署API
-
-### Vercel部署
-```bash
-# 安装Vercel CLI
-npm i -g vercel
-
-# 登录
-vercel login
-
-# 部署
-cd gemini-key-scanner
-vercel
+```text
+Name: GH_TOKEN
+Value: ghp_xxx
 ```
 
-创建 `vercel.json`:
-```json
-{
-  "version": 2,
-  "builds": [
-    {
-      "src": "api.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api.py"
-    }
-  ],
-  "env": {
-    "GITHUB_TOKEN": "@github_token"
-  }
-}
+建议使用 classic token，并勾选：
+
+```text
+public_repo
 ```
 
-### Railway部署
-1. 访问 https://railway.app
-2. 连接GitHub仓库
-3. 添加环境变量 `GITHUB_TOKEN`
-4. 自动部署
+私有仓库扫描使用：
 
----
-
-## 方法三：Render部署
-
-1. 访问 https://render.com
-2. New → Web Service
-3. 连接GitHub仓库
-4. 配置：
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `python api.py`
-   - Environment Variables: `GITHUB_TOKEN=your_token`
-5. Create Web Service
-
----
-
-## 方法四：Replit部署
-
-1. 访问 https://replit.com
-2. Import from GitHub
-3. 粘贴仓库URL
-4. 在Secrets添加 `GITHUB_TOKEN`
-5. 运行 `python api.py`
-
----
-
-## 使用已部署的API
-
-```bash
-# 扫描密钥
-curl -X POST https://your-app.vercel.app/scan
-
-# 验证密钥
-curl -X POST https://your-app.vercel.app/validate
-
-# 获取有效密钥
-curl https://your-app.vercel.app/valid-keys
+```text
+repo
 ```
 
----
+## 3. 运行
 
-## 常见问题
+进入：
 
-### Q: GitHub Actions 没有运行？
-A: 检查 Settings → Actions → General → Workflow permissions
-   选择 "Read and write permissions"
+```text
+Actions -> Scan Outlook Leak Lines -> Run workflow
+```
 
-### Q: 速率限制？
-A: GitHub Token 每小时最多5000次请求，合理设置运行频率
+工作流会：
 
-### Q: 如何查看日志？
-A: Actions → 点击具体运行 → 查看各步骤日志
+1. 搜索 GitHub 代码。
+2. 命中 `邮箱----密码----client_id----refresh_token` 后立即写入 `results.txt`。
+3. 把 `results.txt` 上传成 Artifact。
 
-### Q: 结果在哪里？
-A: Actions → 运行详情 → Artifacts → 下载 scan-results
+Artifact 名称：
 
----
+```text
+outlook-results-<run_number>
+```
 
-## 推荐配置
+## 4. 定时运行
 
-- **小规模使用**: GitHub Actions (免费)
-- **API服务**: Vercel/Railway (免费额度)
-- **高频扫描**: 自建服务器 + 定时任务
+`.github/workflows/scan.yml` 默认每 6 小时执行一次：
+
+```yaml
+schedule:
+  - cron: "0 */6 * * *"
+```
+
+## 注意
+
+- 不要把 `results.txt` 提交回仓库。
+- Artifact 默认保留 7 天。
+- 如果要扩大扫描范围，在仓库 Actions 环境变量中设置 `SEARCH_QUERIES`。
