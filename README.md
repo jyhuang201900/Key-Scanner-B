@@ -52,12 +52,13 @@ python cli.py scan
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `SEARCH_QUERIES` | 内置 17 组权重查询 | 设置后覆盖默认查询计划 |
+| `SEARCH_QUERIES` | 内置 19 组权重查询 | 设置后覆盖默认查询计划 |
 | `MAX_PAGES` | `10` | 每个搜索语句最多拉取页数 |
 | `MAX_FILES_PER_QUERY` | `500` | 每条查询硬上限 |
 | `MAX_FILES_PER_SCAN` | `3000` | 单轮最多检查文件数 |
 | `MAX_FILE_BYTES` | `2000000` | 超过该大小的文件跳过 |
 | `DOWNLOAD_WORKERS` | `16` | 并发下载线程数 |
+| `DENSE_FILE_LINES` | `20` | 单文件命中行数达到该值记为高密度 dump |
 | `MIN_REFRESH_TOKEN_LENGTH` | `80` | refresh token 最短长度 |
 | `RESULTS_FILE` | `results.txt` | 输出路径 |
 
@@ -72,6 +73,10 @@ GitHub 代码搜索不是全量数据源，无法扫描 GitHub 上的每一段�
 - 每个搜索语句存在结果数量上限。
 - 私有仓库需要有权限的 Token。
 - 代码必须能被搜索关键词命中，未包含关键词的泄露行不会返回。
+
+高价值目标是**单文件包含大量账号行**的 dump 文件（泄露文件通常几百到几千行）。
+扫描器会统计每个文件的命中行数，把命中行数 ≥ `DENSE_FILE_LINES` 的文件标记为
+`DUMP HIT`，并把每条查询的产出写进 `scan_stats.json`，方便判断哪条查询真正命中大文件。
 
 当前配置单轮最多检查 3000 个匹配文件，但仍然是
 “尽可能多扫”，不是 GitHub 全量扫描。

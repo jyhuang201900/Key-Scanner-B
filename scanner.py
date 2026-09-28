@@ -52,6 +52,9 @@ class KeyScanner:
         self.found_keys: Set[str] = set()
         self.visited_files: Set[str] = set()
         self.branch_cache: Dict[str, str] = {}
+        self.file_yields: Dict[str, int] = {}
+        self.query_stats: List[Dict] = []
+        self._recorded_files: Set[str] = set()
         self.file_count = 0
         self._lock = threading.RLock()
         self._local = threading.local()
@@ -440,24 +443,27 @@ class KeyScanner:
 
         return items
 
-    def process_item(self, item: Dict) -> int:
+    def process_item(self, item: Dict) -> Tuple[int, int]:
         repository = item.get("repository") or {}
         full_name = repository.get("full_name", "unknown")
         path = item.get("path", "unknown")
         source = f"{full_name}/{path}"
         added = 0
+        file_lines: Set[str] = set()
 
         fragments = [
             match.get("fragment", "")
             for match in item.get("text_matches", [])
         ]
         for fragment in fragments:
+            file_lines.update(self.extract_lines(fragment))
             added += self.consume(fragment, source)
 
         content = self.fetch_file(item)
         if content:
+            file_lines.update(self.extract_lines(content))
             added += self.consume(content, source)
-        return added
+        return added, len(file_lines)
 
     def process_items_parallel(self, items: Iterable[Dict]) -> int:
         item_list = list(items)
@@ -473,7 +479,18 @@ class KeyScanner:
             }
             for future in as_completed(futures):
                 try:
-                    added += future.result()
+                    item_added, file_lines = future.result()
+                    added += item_added
+                    item = futures[future]
+                    repo = (item.get("repository") or {}).get("full_name", "?")
+                    path = item.get("path", "?")
+                    key = f"{repo}/{path}"
+                    with self._lock:
+                        self.file_yields[key] = file_lines
+                    if file_lines >= config.DENSE_FILE_LINES:
+                        print(
+                            f"  ** DUMP HIT: {key} -> {file_lines} lines"
+                        )
                 except Exception as exc:
                     item = futures[future]
                     repo = (item.get("repository") or {}).get("full_name", "?")
@@ -484,9 +501,64 @@ class KeyScanner:
     def search_github(self, query: str, limit: int) -> int:
         items = self.collect_query_items(query, limit)
         if not items:
+            self.query_stats.append({
+                "query": query,
+                "limit": limit,
+                "files": 0,
+                "new_lines": 0,
+                "total_lines": 0,
+                "dense_files": 0,
+            })
             return 0
         print(f"  Processing {len(items)} unique files")
-        return self.process_items_parallel(items)
+        added = self.process_items_parallel(items)
+
+        with self._lock:
+            touched = set(self.file_yields) - self._recorded_files
+            self._recorded_files.update(touched)
+            dense = 0
+            total_lines = 0
+            for key in touched:
+                count = self.file_yields[key]
+                total_lines += count
+                if count >= config.DENSE_FILE_LINES:
+                    dense += 1
+        self.query_stats.append({
+            "query": query,
+            "limit": limit,
+            "files": len(items),
+            "new_lines": added,
+            "total_lines": total_lines,
+            "dense_files": dense,
+        })
+        return added
+
+    def write_stats(self, elapsed: float) -> str:
+        """Dump per-query yield and file density to a JSON file."""
+        import json
+
+        with self._lock:
+            yields = sorted(
+                self.file_yields.items(),
+                key=lambda pair: pair[1],
+                reverse=True,
+            )
+            dense = [p for p in yields if p[1] >= config.DENSE_FILE_LINES]
+            payload = {
+                "elapsed_seconds": round(elapsed, 2),
+                "files_scanned": self.file_count,
+                "unique_lines": len(self.found_keys),
+                "dense_file_threshold": config.DENSE_FILE_LINES,
+                "dense_file_count": len(dense),
+                "queries": list(self.query_stats),
+                "top_files_by_lines": [
+                    {"file": key, "lines": count} for key, count in yields[:50]
+                ],
+            }
+
+        with open(config.STATS_FILE, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+        return config.STATS_FILE
 
     def scan(self) -> Dict[str, object]:
         print("Scanning GitHub for leaked account lines...")
@@ -513,6 +585,7 @@ class KeyScanner:
             total_added += self.search_github(query, query_limit)
 
         elapsed = time.time() - start_time
+        self.write_stats(elapsed)
         print(
             f"Scan complete: {total_added} new lines, "
             f"{len(self.found_keys)} seen, {self.file_count} files, "
