@@ -62,8 +62,8 @@ SEARCH_QUERIES = [query for query, _ in SEARCH_PLAN]
 
 
 # Limits and pacing
-MAX_FILES_PER_QUERY = int(os.getenv("MAX_FILES_PER_QUERY", "120"))
-MAX_FILES_PER_SCAN = int(os.getenv("MAX_FILES_PER_SCAN", "600"))
+MAX_FILES_PER_QUERY = int(os.getenv("MAX_FILES_PER_QUERY", "500"))
+MAX_FILES_PER_SCAN = int(os.getenv("MAX_FILES_PER_SCAN", "3000"))
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", "2000000"))
 DOWNLOAD_WORKERS = int(os.getenv("DOWNLOAD_WORKERS", "16"))
 MIN_REMAINING_REQUESTS = 5
