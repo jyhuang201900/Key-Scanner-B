@@ -52,12 +52,12 @@ python cli.py scan
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `SEARCH_QUERIES` | 内置 20 组查询 | 使用 `|` 分隔多个 GitHub 搜索语句 |
+| `SEARCH_QUERIES` | 内置 22 组权重查询 | 设置后覆盖默认查询计划 |
 | `MAX_PAGES` | `10` | 每个搜索语句最多拉取页数 |
-| `MAX_FILES_PER_QUERY` | `250` | 每条查询最多检查文件数 |
-| `MAX_FILES_PER_SCAN` | `5000` | 单次最多检查文件数 |
+| `MAX_FILES_PER_QUERY` | `120` | 每条查询硬上限 |
+| `MAX_FILES_PER_SCAN` | `600` | 当前小规模测试总文件数 |
 | `MAX_FILE_BYTES` | `2000000` | 超过该大小的文件跳过 |
-| `DOWNLOAD_WORKERS` | `12` | 并发下载线程数 |
+| `DOWNLOAD_WORKERS` | `16` | 并发下载线程数 |
 | `MIN_REFRESH_TOKEN_LENGTH` | `80` | refresh token 最短长度 |
 | `RESULTS_FILE` | `results.txt` | 输出路径 |
 
@@ -73,5 +73,5 @@ GitHub 代码搜索不是全量数据源，无法扫描 GitHub 上的每一段�
 - 私有仓库需要有权限的 Token。
 - 代码必须能被搜索关键词命中，未包含关键词的泄露行不会返回。
 
-当前默认配置会把扫描量提高到最多检查 5000 个匹配文件，但仍然是
+当前配置先进行小规模验证，最多检查 600 个匹配文件，但仍然是
 “尽可能多扫”，不是 GitHub 全量扫描。

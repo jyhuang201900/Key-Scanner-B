@@ -25,40 +25,47 @@ ACCOUNT_SEPARATOR = "----"
 CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
 MIN_REFRESH_TOKEN_LENGTH = int(os.getenv("MIN_REFRESH_TOKEN_LENGTH", "80"))
 
-_default_queries = "|".join([
-    f'"{CLIENT_ID}" "{ACCOUNT_SEPARATOR}"',
-    f'"M.C5" "{ACCOUNT_SEPARATOR}"',
-    f'"M.C" "{ACCOUNT_SEPARATOR}"',
-    '"M.C50"',
-    '"M.C5"',
-    '"MsaArtifacts"',
-    '"BAY.0.U"',
-    f'"refresh_token" "{ACCOUNT_SEPARATOR}"',
-    f'"@outlook.com" "{ACCOUNT_SEPARATOR}"',
-    f'"@hotmail.com" "{ACCOUNT_SEPARATOR}"',
-    f'"@live.com" "{ACCOUNT_SEPARATOR}"',
-    f'"@msn.com" "{ACCOUNT_SEPARATOR}"',
-    f'"@yahoo.com" "{ACCOUNT_SEPARATOR}"',
-    f'"@icloud.com" "{ACCOUNT_SEPARATOR}"',
-    f'"@163.com" "{ACCOUNT_SEPARATOR}"',
-    f'"@qq.com" "{ACCOUNT_SEPARATOR}"',
-    'filename:results.txt "M.C"',
-    'filename:accounts.txt "M.C"',
-    'filename:outlook.txt "M.C"',
-    f'extension:txt "M.C" "{ACCOUNT_SEPARATOR}"',
-])
-SEARCH_QUERIES = [
-    item.strip()
-    for item in os.getenv("SEARCH_QUERIES", _default_queries).split("|")
-    if item.strip()
+_default_plan = [
+    ('"MsaArtifacts"', 12),
+    ('"BAY.0.U"', 6),
+    ('"M.C5"', 6),
+    ('"@hotmail.com" "MsaArtifacts"', 6),
+    ('"@outlook.com" "MsaArtifacts"', 6),
+    ('"@live.com" "MsaArtifacts"', 6),
+    ('"@msn.com" "MsaArtifacts"', 6),
+    ('"@hotmail.com" "refresh_token"', 4),
+    ('"@outlook.com" "refresh_token"', 4),
+    ('"@live.com" "refresh_token"', 4),
+    ('"@msn.com" "refresh_token"', 4),
+    ('"@hotmail.com" "M.C"', 3),
+    ('"@outlook.com" "M.C"', 3),
+    ('"@live.com" "M.C"', 3),
+    ('"@msn.com" "M.C"', 3),
+    ('filename:results.txt "MsaArtifacts"', 3),
+    ('filename:accounts.txt "MsaArtifacts"', 3),
+    ('filename:outlook.txt "MsaArtifacts"', 3),
+    ('filename:tokens.txt "MsaArtifacts"', 3),
+    ('extension:txt "MsaArtifacts"', 3),
+    ('extension:txt "@hotmail.com"', 3),
+    ('extension:txt "@outlook.com"', 3),
 ]
+_override_queries = os.getenv("SEARCH_QUERIES", "").strip()
+if _override_queries:
+    SEARCH_PLAN = [
+        (item.strip(), 1)
+        for item in _override_queries.split("|")
+        if item.strip()
+    ]
+else:
+    SEARCH_PLAN = _default_plan
+SEARCH_QUERIES = [query for query, _ in SEARCH_PLAN]
 
 
 # Limits and pacing
-MAX_FILES_PER_QUERY = int(os.getenv("MAX_FILES_PER_QUERY", "250"))
-MAX_FILES_PER_SCAN = int(os.getenv("MAX_FILES_PER_SCAN", "5000"))
+MAX_FILES_PER_QUERY = int(os.getenv("MAX_FILES_PER_QUERY", "120"))
+MAX_FILES_PER_SCAN = int(os.getenv("MAX_FILES_PER_SCAN", "600"))
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", "2000000"))
-DOWNLOAD_WORKERS = int(os.getenv("DOWNLOAD_WORKERS", "12"))
+DOWNLOAD_WORKERS = int(os.getenv("DOWNLOAD_WORKERS", "16"))
 MIN_REMAINING_REQUESTS = 5
 ABUSE_WAIT_TIME = 300
 REQUEST_DELAY_MIN = 0.02

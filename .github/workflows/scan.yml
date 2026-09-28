@@ -44,9 +44,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: results.txt
-          key: outlook-results-${{ github.run_id }}
+          key: outlook-results-v2-${{ github.run_id }}
           restore-keys: |
-            outlook-results-
+            outlook-results-v2-
 
       - name: Scan
         env:
@@ -62,7 +62,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: results.txt
-          key: outlook-results-${{ github.run_id }}
+          key: outlook-results-v2-${{ github.run_id }}
 
       - name: Add summary
         if: always()

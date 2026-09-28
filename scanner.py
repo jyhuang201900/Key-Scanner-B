@@ -388,12 +388,12 @@ class KeyScanner:
 
         return None
 
-    def collect_query_items(self, query: str) -> List[Dict]:
+    def collect_query_items(self, query: str, limit: int) -> List[Dict]:
         items: List[Dict] = []
         total_count = None
 
         for page in range(1, config.MAX_PAGES + 1):
-            remaining_query = config.MAX_FILES_PER_QUERY - len(items)
+            remaining_query = limit - len(items)
             if remaining_query <= 0:
                 break
 
@@ -425,10 +425,10 @@ class KeyScanner:
                     self.file_count += 1
 
                 items.append(item)
-                if len(items) >= config.MAX_FILES_PER_QUERY:
+                if len(items) >= limit:
                     break
 
-            if len(items) >= config.MAX_FILES_PER_QUERY:
+            if len(items) >= limit:
                 break
             if "next" not in response.links:
                 break
@@ -481,8 +481,8 @@ class KeyScanner:
                     print(f"File processing failed: {repo}/{path}: {exc}")
         return added
 
-    def search_github(self, query: str) -> int:
-        items = self.collect_query_items(query)
+    def search_github(self, query: str, limit: int) -> int:
+        items = self.collect_query_items(query, limit)
         if not items:
             return 0
         print(f"  Processing {len(items)} unique files")
@@ -491,11 +491,12 @@ class KeyScanner:
     def scan(self) -> Dict[str, object]:
         print("Scanning GitHub for leaked account lines...")
         self.validate_auth()
-        queries: List[str] = list(config.SEARCH_QUERIES)
+        search_plan: List[Tuple[str, int]] = list(config.SEARCH_PLAN)
+        total_weight = sum(weight for _, weight in search_plan) or 1
         start_time = time.time()
         total_added = 0
 
-        for query in tqdm(queries, desc="Queries"):
+        for query, weight in tqdm(search_plan, desc="Queries"):
             with self._lock:
                 if self.file_count >= config.MAX_FILES_PER_SCAN:
                     tqdm.write(
@@ -503,8 +504,13 @@ class KeyScanner:
                         f"{config.MAX_FILES_PER_SCAN}"
                     )
                     break
-            tqdm.write(f"Search: {query}")
-            total_added += self.search_github(query)
+            weighted_limit = max(
+                1,
+                config.MAX_FILES_PER_SCAN * weight // total_weight,
+            )
+            query_limit = min(config.MAX_FILES_PER_QUERY, weighted_limit)
+            tqdm.write(f"Search: {query} (limit={query_limit})")
+            total_added += self.search_github(query, query_limit)
 
         elapsed = time.time() - start_time
         print(
@@ -513,7 +519,7 @@ class KeyScanner:
             f"{elapsed:.2f}s"
         )
         return {
-            "total_queries": len(queries),
+            "total_queries": len(search_plan),
             "total_found": total_added,
             "unique_keys": len(self.found_keys),
             "files_scanned": self.file_count,
