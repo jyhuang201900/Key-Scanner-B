@@ -51,9 +51,9 @@ python cli.py scan
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `SEARCH_QUERIES` | 内置 15 组查询 | 使用 `|` 分隔多个 GitHub 搜索语句 |
+| `SEARCH_QUERIES` | 内置 12 组查询 | 使用 `|` 分隔多个 GitHub 搜索语句 |
 | `MAX_PAGES` | `10` | 每个搜索语句最多拉取页数 |
-| `MAX_FILES_PER_QUERY` | `200` | 每条查询最多检查文件数 |
+| `MAX_FILES_PER_QUERY` | `250` | 每条查询最多检查文件数 |
 | `MAX_FILES_PER_SCAN` | `3000` | 单次最多检查文件数 |
 | `MAX_FILE_BYTES` | `2000000` | 超过该大小的文件跳过 |
 | `MIN_REFRESH_TOKEN_LENGTH` | `80` | refresh token 最短长度 |
