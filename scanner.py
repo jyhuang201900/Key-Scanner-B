@@ -31,6 +31,40 @@ ACCOUNT_PATTERN = re.compile(
 )
 
 
+def item_ref_candidates(item: Dict) -> List[str]:
+    """Ordered git refs to try when downloading a code-search result.
+
+    `repository.default_branch` is frequently absent from search results and a
+    blind fallback to "main" silently drops every repo that uses "master".
+    The ref can also be recovered from the html_url blob segment.
+    """
+    repository = item.get("repository") or {}
+    candidates: List[str] = []
+
+    for value in (repository.get("default_branch"),):
+        if value:
+            candidates.append(str(value))
+
+    html_url = item.get("html_url") or ""
+    marker = "/blob/"
+    index = html_url.find(marker)
+    if index >= 0:
+        ref = html_url[index + len(marker):].split("/", 1)[0]
+        if ref:
+            candidates.append(ref)
+
+    for fallback in ("main", "master"):
+        candidates.append(fallback)
+
+    seen: Set[str] = set()
+    ordered: List[str] = []
+    for ref in candidates:
+        if ref and ref not in seen:
+            seen.add(ref)
+            ordered.append(ref)
+    return ordered
+
+
 class KeyScanner:
     def __init__(self, on_found: Optional[Callable[[str], bool]] = None):
         if not config.GITHUB_TOKEN:
@@ -263,32 +297,32 @@ class KeyScanner:
         if not full_name or not path:
             return None
 
-        branch = (
-            repository.get("default_branch")
-            or self.get_default_branch(full_name)
-        )
-        raw_url = (
-            f"https://raw.githubusercontent.com/{full_name}/"
-            f"{quote(branch, safe='')}/{quote(path, safe='/')}"
-        )
+        refs = item_ref_candidates(item)
+        if not repository.get("default_branch"):
+            refs = [self.get_default_branch(full_name)] + refs
 
-        try:
-            response = self._get(
-                raw_url,
-                headers=self.raw_headers,
-                timeout=config.REQUEST_TIMEOUT,
+        for ref in refs:
+            raw_url = (
+                f"https://raw.githubusercontent.com/{full_name}/"
+                f"{quote(ref, safe='')}/{quote(path, safe='/')}"
             )
-        except requests.RequestException:
-            response = None
+            try:
+                response = self._get(
+                    raw_url,
+                    headers=self.raw_headers,
+                    timeout=config.REQUEST_TIMEOUT,
+                )
+            except requests.RequestException:
+                continue
 
-        if (
-            response is not None
-            and response.status_code == 200
-            and not self._response_too_large(response)
-        ):
-            return self._decode_content(response)
+            if (
+                response is not None
+                and response.status_code == 200
+                and not self._response_too_large(response)
+            ):
+                return self._decode_content(response)
 
-        return self.fetch_file_from_api(full_name, path, branch)
+        return self.fetch_file_from_api(full_name, path, refs[0] if refs else "main")
 
     def fetch_file_from_api(
         self,

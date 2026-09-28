@@ -26,28 +26,23 @@ CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
 MIN_REFRESH_TOKEN_LENGTH = int(os.getenv("MIN_REFRESH_TOKEN_LENGTH", "80"))
 
 _default_plan = [
-    # 高密度目标是大文件：每行约 500 字节，50KB≈100 行，200KB≈400 行
-    ('"@hotmail.com" size:>200000', 10),
-    ('"@outlook.com" size:>200000', 10),
-    ('"@hotmail.com" size:>50000', 8),
-    ('"@outlook.com" size:>50000', 8),
-    # 邮箱单关键词查询：每个查询独享 1000 条结果窗口
-    ('"@hotmail.com"', 6),
-    ('"@outlook.com"', 6),
-    # 单一内容指纹查询，不与邮箱组合；dump 文件必然是大文件
-    ('"MsaArtifacts"', 6),
-    ('"M.C5"', 6),
-    ('"BAY.0.U"', 6),
-    ('"@hotmail.com" extension:txt', 5),
-    ('"@outlook.com" extension:txt', 5),
-    ('"@hotmail.com" extension:csv', 4),
-    ('"@outlook.com" extension:csv', 4),
-    ('"@hotmail.com" extension:json', 4),
-    ('"@outlook.com" extension:json', 4),
-    ('filename:results.txt "@hotmail.com"', 3),
-    ('filename:results.txt "@outlook.com"', 3),
-    ('filename:accounts.txt "@hotmail.com"', 3),
-    ('filename:accounts.txt "@outlook.com"', 3),
+    # A. 稀有指纹：全网仅 142 个文件，结果不会被 1000 上限截断
+    ('MsaArtifacts', 8),
+    ('MsaArtifacts hotmail', 8),
+    ('MsaArtifacts outlook', 8),
+    # B. filename 分区：泄露文件命名可预测，是唯一未验证的高潜力切分轴
+    ('hotmail filename:results', 5),
+    ('outlook filename:results', 5),
+    ('hotmail filename:accounts', 5),
+    ('outlook filename:accounts', 5),
+    ('hotmail filename:token', 5),
+    ('outlook filename:token', 5),
+    ('hotmail filename:email', 5),
+    ('outlook filename:email', 5),
+    # C. 纯字母数字共现词，缩小裸域名查询的范围
+    ('hotmail refreshtoken', 3),
+    ('outlook refreshtoken', 3),
+    ('hotmail clientid', 3),
 ]
 _override_queries = os.getenv("SEARCH_QUERIES", "").strip()
 if _override_queries:

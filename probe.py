@@ -24,27 +24,26 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 import config
-from scanner import KeyScanner
+from scanner import KeyScanner, item_ref_candidates
 
 
 # (label, query). Kept small on purpose: every query costs a search call
 # plus a sample of downloads.
 CANDIDATES: List[Tuple[str, str]] = [
-    ("A fingerprint", "MsaArtifacts size:100000..384000"),
-    ("A fingerprint", "MsaArtifacts"),
-    ("A fingerprint", "MsaArtifacts size:200000..384000"),
-    ("B domain", "hotmail size:100000..384000"),
-    ("B domain", "outlook size:100000..384000"),
-    ("B domain", "hotmail size:200000..384000"),
-    ("C symbol-cost", '"@hotmail.com" size:100000..384000'),
-    ("C symbol-cost", "@hotmail.com size:100000..384000"),
-    ("C symbol-cost", '"----" MsaArtifacts'),
-    ("C symbol-cost", "M.C5 size:100000..384000"),
-    ("C symbol-cost", "MC5 size:100000..384000"),
-    ("D structure", "MsaArtifacts filename:results"),
-    ("D structure", "MsaArtifacts extension:csv"),
-    ("E fork", "MsaArtifacts fork:true"),
-    ("F other", "refresh_token size:100000..384000"),
+    ("A complete", "MsaArtifacts"),
+    ("A complete", "MsaArtifacts hotmail"),
+    ("A complete", "MsaArtifacts outlook"),
+    ("B filename", "hotmail filename:results"),
+    ("B filename", "outlook filename:results"),
+    ("B filename", "hotmail filename:accounts"),
+    ("B filename", "outlook filename:accounts"),
+    ("B filename", "hotmail filename:token"),
+    ("B filename", "outlook filename:token"),
+    ("B filename", "hotmail filename:email"),
+    ("B filename", "outlook filename:email"),
+    ("C cooccur", "hotmail refreshtoken"),
+    ("C cooccur", "outlook refreshtoken"),
+    ("C cooccur", "hotmail clientid"),
 ]
 
 SAMPLE_SIZE = int(os.getenv("PROBE_SAMPLE", "6"))
@@ -191,28 +190,29 @@ class Probe:
         repository = item.get("repository") or {}
         full_name = repository.get("full_name")
         path = item.get("path")
-        branch = repository.get("default_branch") or "main"
         if not full_name or not path:
             return None
 
-        url = (
-            f"https://raw.githubusercontent.com/{full_name}/"
-            f"{quote(branch, safe='')}/{quote(path, safe='/')}"
-        )
-        try:
-            response = self.get(url, headers=self.raw_headers, timeout=20)
-        except requests.RequestException:
-            return None
-        if response.status_code != 200:
-            return None
-        raw_len = response.headers.get("Content-Length")
-        if raw_len:
+        for ref in item_ref_candidates(item):
+            url = (
+                f"https://raw.githubusercontent.com/{full_name}/"
+                f"{quote(ref, safe='')}/{quote(path, safe='/')}"
+            )
             try:
-                if int(raw_len) > MAX_DOWNLOAD_BYTES:
-                    return None
-            except ValueError:
-                pass
-        return response.text
+                response = self.get(url, headers=self.raw_headers, timeout=20)
+            except requests.RequestException:
+                continue
+            if response.status_code != 200:
+                continue
+            raw_len = response.headers.get("Content-Length")
+            if raw_len:
+                try:
+                    if int(raw_len) > MAX_DOWNLOAD_BYTES:
+                        return None
+                except ValueError:
+                    pass
+            return response.text
+        return None
 
     def sample(self, items: List[Dict]) -> Dict:
         rows = 0
