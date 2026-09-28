@@ -26,28 +26,26 @@ CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
 MIN_REFRESH_TOKEN_LENGTH = int(os.getenv("MIN_REFRESH_TOKEN_LENGTH", "80"))
 
 _default_plan = [
-    ('"MsaArtifacts"', 12),
-    ('"BAY.0.U"', 6),
-    ('"M.C5"', 6),
-    ('"@hotmail.com" "MsaArtifacts"', 6),
-    ('"@outlook.com" "MsaArtifacts"', 6),
-    ('"@live.com" "MsaArtifacts"', 6),
-    ('"@msn.com" "MsaArtifacts"', 6),
-    ('"@hotmail.com" "refresh_token"', 4),
-    ('"@outlook.com" "refresh_token"', 4),
-    ('"@live.com" "refresh_token"', 4),
-    ('"@msn.com" "refresh_token"', 4),
-    ('"@hotmail.com" "M.C"', 3),
-    ('"@outlook.com" "M.C"', 3),
-    ('"@live.com" "M.C"', 3),
-    ('"@msn.com" "M.C"', 3),
-    ('filename:results.txt "MsaArtifacts"', 3),
-    ('filename:accounts.txt "MsaArtifacts"', 3),
-    ('filename:outlook.txt "MsaArtifacts"', 3),
-    ('filename:tokens.txt "MsaArtifacts"', 3),
-    ('extension:txt "MsaArtifacts"', 3),
-    ('extension:txt "@hotmail.com"', 3),
-    ('extension:txt "@outlook.com"', 3),
+    # 邮箱单关键词查询：每个查询独享 1000 条结果窗口
+    ('"@hotmail.com"', 10),
+    ('"@outlook.com"', 10),
+    # 单一内容指纹查询，不与邮箱组合
+    ('"MsaArtifacts"', 8),
+    ('"M.C5"', 8),
+    ('"BAY.0.U"', 8),
+    # 邮箱 + 结构限定符，用来把大结果集切成多个独立窗口
+    ('"@hotmail.com" size:>5000', 6),
+    ('"@outlook.com" size:>5000', 6),
+    ('"@hotmail.com" extension:txt', 5),
+    ('"@outlook.com" extension:txt', 5),
+    ('"@hotmail.com" extension:csv', 4),
+    ('"@outlook.com" extension:csv', 4),
+    ('"@hotmail.com" extension:json', 4),
+    ('"@outlook.com" extension:json', 4),
+    ('filename:results.txt "@hotmail.com"', 3),
+    ('filename:results.txt "@outlook.com"', 3),
+    ('filename:accounts.txt "@hotmail.com"', 3),
+    ('filename:accounts.txt "@outlook.com"', 3),
 ]
 _override_queries = os.getenv("SEARCH_QUERIES", "").strip()
 if _override_queries:

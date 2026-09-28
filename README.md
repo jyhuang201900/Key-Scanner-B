@@ -52,7 +52,7 @@ python cli.py scan
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `SEARCH_QUERIES` | 内置 22 组权重查询 | 设置后覆盖默认查询计划 |
+| `SEARCH_QUERIES` | 内置 17 组权重查询 | 设置后覆盖默认查询计划 |
 | `MAX_PAGES` | `10` | 每个搜索语句最多拉取页数 |
 | `MAX_FILES_PER_QUERY` | `500` | 每条查询硬上限 |
 | `MAX_FILES_PER_SCAN` | `3000` | 单轮最多检查文件数 |
