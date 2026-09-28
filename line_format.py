@@ -20,6 +20,21 @@ CLIENT_ID_PATTERN = re.compile(
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9._~!@#$%^&*+/=-]+")
 
 
+def _strip_wrappers(value: str) -> str:
+    clean = value.strip()
+    wrapper_chars = "\"'`"
+    trailing_chars = "\"'`),;]}"
+    leading_chars = "\"'`([{"
+
+    while clean and clean[-1] in trailing_chars:
+        clean = clean[:-1].rstrip()
+    while clean and clean[0] in leading_chars:
+        clean = clean[1:].lstrip()
+    while clean and clean[-1] in wrapper_chars:
+        clean = clean[:-1].rstrip()
+    return clean
+
+
 def normalize_account_line(line: str) -> str | None:
     """Return canonical email----password----client_id----refresh_token."""
     clean = (line or "").strip()
@@ -30,11 +45,10 @@ def normalize_account_line(line: str) -> str | None:
     if len(parts) != 4:
         return None
 
-    email = parts[0].strip().strip("\"'`")
+    email = _strip_wrappers(parts[0])
     password = parts[1].strip()
-    client_id = parts[2].strip().strip("\"'`")
-    refresh_token = parts[3].strip().strip("\"'`")
-    refresh_token = refresh_token.rstrip(",;)]}")
+    client_id = _strip_wrappers(parts[2])
+    refresh_token = _strip_wrappers(parts[3])
 
     if not EMAIL_PATTERN.fullmatch(email):
         return None

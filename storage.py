@@ -11,19 +11,37 @@ class Storage:
     def __init__(self, path: str = config.RESULTS_FILE):
         self.path = path
         self._lock = threading.Lock()
-        self._seen = set(self.load_lines())
+        self._lines = self._load_and_clean()
+        self._seen = set(self._lines)
 
-    def load_lines(self) -> List[str]:
+    def _load_and_clean(self) -> List[str]:
         if not os.path.exists(self.path):
             return []
 
+        valid = []
+        seen = set()
+        changed = False
         with open(self.path, "r", encoding="utf-8", errors="replace") as handle:
-            lines = []
-            for line in handle:
-                clean = normalize_account_line(line)
-                if clean:
-                    lines.append(clean)
-            return lines
+            for raw_line in handle:
+                clean = normalize_account_line(raw_line)
+                if not clean or clean in seen:
+                    changed = True
+                    continue
+                valid.append(clean)
+                seen.add(clean)
+
+        if changed:
+            temp_path = f"{self.path}.tmp"
+            with open(temp_path, "w", encoding="utf-8", newline="\n") as handle:
+                for line in valid:
+                    handle.write(line + "\n")
+            os.replace(temp_path, self.path)
+
+        return valid
+
+    def load_lines(self) -> List[str]:
+        with self._lock:
+            return list(self._lines)
 
     def append_line(self, line: str) -> bool:
         """Append one canonical line immediately and return True when written."""
@@ -41,6 +59,7 @@ class Storage:
                 handle.write(clean + "\n")
                 handle.flush()
 
+            self._lines.append(clean)
             self._seen.add(clean)
             return True
 

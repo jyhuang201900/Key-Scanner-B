@@ -28,6 +28,7 @@ results.txt
 
 工作流默认使用 GitHub Actions 内置的 `github.token`，不需要额外配置 Secret。
 默认每 6 小时运行一次，修改扫描器代码后也会自动运行一次。
+每轮结果会通过 Actions Cache 继承上一轮内容，`results.txt` 会持续累加。
 
 ## 本地运行
 
@@ -51,11 +52,12 @@ python cli.py scan
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `SEARCH_QUERIES` | 内置 12 组查询 | 使用 `|` 分隔多个 GitHub 搜索语句 |
+| `SEARCH_QUERIES` | 内置 20 组查询 | 使用 `|` 分隔多个 GitHub 搜索语句 |
 | `MAX_PAGES` | `10` | 每个搜索语句最多拉取页数 |
 | `MAX_FILES_PER_QUERY` | `250` | 每条查询最多检查文件数 |
-| `MAX_FILES_PER_SCAN` | `3000` | 单次最多检查文件数 |
+| `MAX_FILES_PER_SCAN` | `5000` | 单次最多检查文件数 |
 | `MAX_FILE_BYTES` | `2000000` | 超过该大小的文件跳过 |
+| `DOWNLOAD_WORKERS` | `12` | 并发下载线程数 |
 | `MIN_REFRESH_TOKEN_LENGTH` | `80` | refresh token 最短长度 |
 | `RESULTS_FILE` | `results.txt` | 输出路径 |
 
@@ -71,5 +73,5 @@ GitHub 代码搜索不是全量数据源，无法扫描 GitHub 上的每一段�
 - 私有仓库需要有权限的 Token。
 - 代码必须能被搜索关键词命中，未包含关键词的泄露行不会返回。
 
-当前默认配置会把扫描量提高到最多检查 3000 个匹配文件，但仍然是
+当前默认配置会把扫描量提高到最多检查 5000 个匹配文件，但仍然是
 “尽可能多扫”，不是 GitHub 全量扫描。

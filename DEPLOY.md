@@ -21,8 +21,9 @@ Actions -> Scan Outlook Leak Lines -> Run workflow
 工作流会：
 
 1. 搜索 GitHub 代码。
-2. 命中 `邮箱----密码----client_id----refresh_token` 后立即写入 `results.txt`。
-3. 把 `results.txt` 上传成 Artifact。
+2. 从 Actions Cache 恢复上一轮累计结果。
+3. 命中 `邮箱----密码----client_id----refresh_token` 后立即写入 `results.txt`。
+4. 保存累计结果，并把 `results.txt` 上传成 Artifact。
 
 Artifact 名称：
 

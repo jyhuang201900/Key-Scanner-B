@@ -29,6 +29,8 @@ _default_queries = "|".join([
     f'"{CLIENT_ID}" "{ACCOUNT_SEPARATOR}"',
     f'"M.C5" "{ACCOUNT_SEPARATOR}"',
     f'"M.C" "{ACCOUNT_SEPARATOR}"',
+    '"M.C50"',
+    '"M.C5"',
     '"MsaArtifacts"',
     '"BAY.0.U"',
     f'"refresh_token" "{ACCOUNT_SEPARATOR}"',
@@ -36,8 +38,14 @@ _default_queries = "|".join([
     f'"@hotmail.com" "{ACCOUNT_SEPARATOR}"',
     f'"@live.com" "{ACCOUNT_SEPARATOR}"',
     f'"@msn.com" "{ACCOUNT_SEPARATOR}"',
+    f'"@yahoo.com" "{ACCOUNT_SEPARATOR}"',
+    f'"@icloud.com" "{ACCOUNT_SEPARATOR}"',
+    f'"@163.com" "{ACCOUNT_SEPARATOR}"',
+    f'"@qq.com" "{ACCOUNT_SEPARATOR}"',
     'filename:results.txt "M.C"',
     'filename:accounts.txt "M.C"',
+    'filename:outlook.txt "M.C"',
+    f'extension:txt "M.C" "{ACCOUNT_SEPARATOR}"',
 ])
 SEARCH_QUERIES = [
     item.strip()
@@ -48,12 +56,14 @@ SEARCH_QUERIES = [
 
 # Limits and pacing
 MAX_FILES_PER_QUERY = int(os.getenv("MAX_FILES_PER_QUERY", "250"))
-MAX_FILES_PER_SCAN = int(os.getenv("MAX_FILES_PER_SCAN", "3000"))
+MAX_FILES_PER_SCAN = int(os.getenv("MAX_FILES_PER_SCAN", "5000"))
 MAX_FILE_BYTES = int(os.getenv("MAX_FILE_BYTES", "2000000"))
+DOWNLOAD_WORKERS = int(os.getenv("DOWNLOAD_WORKERS", "12"))
 MIN_REMAINING_REQUESTS = 5
 ABUSE_WAIT_TIME = 300
-REQUEST_DELAY_MIN = 0.3
-REQUEST_DELAY_MAX = 0.8
+REQUEST_DELAY_MIN = 0.02
+REQUEST_DELAY_MAX = 0.08
+REQUEST_TIMEOUT = 30
 
 
 # Output

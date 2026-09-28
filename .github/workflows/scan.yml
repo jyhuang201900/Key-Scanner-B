@@ -8,6 +8,7 @@ on:
       - ".github/workflows/scan.yml"
       - "cli.py"
       - "config.py"
+      - "line_format.py"
       - "scanner.py"
       - "storage.py"
       - "requirements.txt"
@@ -39,10 +40,29 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore accumulated results
+        uses: actions/cache/restore@v4
+        with:
+          path: results.txt
+          key: outlook-results-${{ github.run_id }}
+          restore-keys: |
+            outlook-results-
+
       - name: Scan
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python cli.py scan
+
+      - name: Ensure results file
+        if: always()
+        run: touch results.txt
+
+      - name: Save accumulated results
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: results.txt
+          key: outlook-results-${{ github.run_id }}
 
       - name: Add summary
         if: always()

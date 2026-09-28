@@ -1,13 +1,17 @@
-"""Search GitHub for leaked Outlook account lines."""
+"""High-recall GitHub scanner for leaked Outlook account lines."""
 import base64
 import random
 import re
+import threading
 import time
-from typing import Callable, Dict, List, Optional, Set
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import quote
 
 import requests
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+from urllib3.util.retry import Retry
 
 import config
 from line_format import normalize_account_line
@@ -23,10 +27,7 @@ ACCOUNT_PATTERN = re.compile(
     + r"(?P<client_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
     + r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
     + re.escape(config.ACCOUNT_SEPARATOR)
-    + (
-        rf"(?P<refresh_token>[A-Za-z0-9._~!@#$%^&*+/=-]"
-        rf"{{{config.MIN_REFRESH_TOKEN_LENGTH},}})"
-    )
+    + rf"(?P<refresh_token>\S{{{config.MIN_REFRESH_TOKEN_LENGTH},}})"
 )
 
 
@@ -52,18 +53,89 @@ class KeyScanner:
         self.visited_files: Set[str] = set()
         self.branch_cache: Dict[str, str] = {}
         self.file_count = 0
+        self._lock = threading.RLock()
+        self._local = threading.local()
+        self.search_remaining: Optional[int] = None
+        self.search_reset = 0
+        self.core_remaining: Optional[int] = None
+        self.core_reset = 0
+
+    def _session(self) -> requests.Session:
+        session = getattr(self._local, "session", None)
+        if session is not None:
+            return session
+
+        retry = Retry(
+            total=4,
+            connect=4,
+            read=4,
+            status=4,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET"]),
+            respect_retry_after_header=True,
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry,
+            pool_connections=20,
+            pool_maxsize=20,
+        )
+        session = requests.Session()
+        session.mount("https://", adapter)
+        self._local.session = session
+        return session
+
+    def _get(self, url: str, **kwargs):
+        return self._session().get(url, **kwargs)
+
+    def _update_rate_state(self, response) -> None:
+        resource = response.headers.get("X-RateLimit-Resource", "").lower()
+        remaining = response.headers.get("X-RateLimit-Remaining")
+        reset = response.headers.get("X-RateLimit-Reset")
+        if remaining is None or reset is None:
+            return
+
+        try:
+            remaining_value = int(remaining)
+            reset_value = int(reset)
+        except ValueError:
+            return
+
+        with self._lock:
+            if resource == "search":
+                self.search_remaining = remaining_value
+                self.search_reset = reset_value
+            elif resource == "core":
+                self.core_remaining = remaining_value
+                self.core_reset = reset_value
+
+    def _wait_for_limit(self, resource: str, minimum: int) -> None:
+        with self._lock:
+            remaining = (
+                self.search_remaining if resource == "search" else self.core_remaining
+            )
+            reset = self.search_reset if resource == "search" else self.core_reset
+
+        if remaining is None or remaining > minimum:
+            return
+
+        wait = max(0, reset - time.time()) + 2
+        if wait > 0:
+            print(f"GitHub {resource} limit reached, waiting {wait:.0f}s")
+            time.sleep(wait)
 
     def validate_auth(self) -> None:
         """Fail fast when the GitHub token is invalid or unauthorized."""
         try:
-            response = requests.get(
+            response = self._get(
                 f"{config.GITHUB_API_BASE}/rate_limit",
                 headers=self.search_headers,
-                timeout=15,
+                timeout=config.REQUEST_TIMEOUT,
             )
         except requests.RequestException as exc:
             raise RuntimeError(f"GitHub authentication check failed: {exc}") from exc
 
+        self._update_rate_state(response)
         if response.status_code == 401:
             raise RuntimeError(
                 "GitHub API authentication failed (401). "
@@ -79,34 +151,20 @@ class KeyScanner:
                 f"GitHub authentication check returned HTTP {response.status_code}"
             )
 
-        search_rate = response.json().get("resources", {}).get("search", {})
+        resources = response.json().get("resources", {})
+        search_rate = resources.get("search", {})
+        core_rate = resources.get("core", {})
+        with self._lock:
+            self.search_remaining = search_rate.get("remaining")
+            self.search_reset = search_rate.get("reset", 0)
+            self.core_remaining = core_rate.get("remaining")
+            self.core_reset = core_rate.get("reset", 0)
+
         print(
             "GitHub authentication OK, "
-            f"search remaining: {search_rate.get('remaining', 'unknown')}"
+            f"search remaining: {self.search_remaining}, "
+            f"core remaining: {self.core_remaining}"
         )
-
-    def check_rate_limit(self) -> None:
-        try:
-            response = requests.get(
-                f"{config.GITHUB_API_BASE}/rate_limit",
-                headers=self.search_headers,
-                timeout=15,
-            )
-            if response.status_code == 401:
-                raise RuntimeError(
-                    "GitHub API authentication failed (401): invalid token"
-                )
-            response.raise_for_status()
-            rate = response.json()["resources"]["search"]
-            remaining = rate["remaining"]
-            if remaining < config.MIN_REMAINING_REQUESTS:
-                wait = max(0, rate["reset"] - time.time()) + 5
-                print(f"GitHub search rate limit reached, waiting {wait:.0f}s")
-                time.sleep(wait)
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            print(f"Rate-limit check failed: {exc}")
 
     @staticmethod
     def extract_lines(content: str) -> Set[str]:
@@ -118,36 +176,82 @@ class KeyScanner:
         return lines
 
     def consume(self, content: str, source: str) -> int:
-        added = 0
-        for line in self.extract_lines(content):
-            if line in self.found_keys:
-                continue
+        candidates = self.extract_lines(content)
+        if not candidates:
+            return 0
 
-            self.found_keys.add(line)
-            if self.on_found is not None:
-                self.on_found(line)
-            added += 1
-            print(f"  + [{len(self.found_keys)}] {line[:90]}... ({source})")
-        return added
+        new_lines = []
+        with self._lock:
+            for line in candidates:
+                if line not in self.found_keys:
+                    self.found_keys.add(line)
+                    new_lines.append(line)
+
+        stored = 0
+        for line in new_lines:
+            was_stored = self.on_found(line) if self.on_found else True
+            if was_stored:
+                stored += 1
+                print(
+                    f"  + [{len(self.found_keys)}] "
+                    f"{line[:90]}... ({source})"
+                )
+        return stored
 
     def get_default_branch(self, full_name: str) -> str:
-        if full_name in self.branch_cache:
-            return self.branch_cache[full_name]
+        with self._lock:
+            cached = self.branch_cache.get(full_name)
+        if cached:
+            return cached
 
         branch = "main"
         try:
-            response = requests.get(
+            self._wait_for_limit("core", config.MIN_REMAINING_REQUESTS)
+            response = self._get(
                 f"{config.GITHUB_API_BASE}/repos/{full_name}",
                 headers=self.search_headers,
-                timeout=15,
+                timeout=config.REQUEST_TIMEOUT,
             )
+            self._update_rate_state(response)
             if response.status_code == 200:
                 branch = response.json().get("default_branch") or branch
         except requests.RequestException:
             pass
 
-        self.branch_cache[full_name] = branch
+        with self._lock:
+            self.branch_cache[full_name] = branch
         return branch
+
+    @staticmethod
+    def _response_too_large(response) -> bool:
+        content_length = response.headers.get("Content-Length")
+        if not content_length:
+            return False
+        try:
+            return int(content_length) > config.MAX_FILE_BYTES
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _decode_content(response) -> Optional[str]:
+        content_type = response.headers.get("Content-Type", "")
+        if "application/json" in content_type and response.text.lstrip().startswith("{"):
+            try:
+                payload = response.json()
+            except ValueError:
+                return None
+
+            encoded = payload.get("content", "")
+            if payload.get("encoding") == "base64":
+                try:
+                    return base64.b64decode(encoded).decode(
+                        "utf-8",
+                        errors="replace",
+                    )
+                except (ValueError, TypeError):
+                    return None
+            return None
+        return response.text
 
     def fetch_file(self, item: Dict) -> Optional[str]:
         repository = item.get("repository") or {}
@@ -156,144 +260,176 @@ class KeyScanner:
         if not full_name or not path:
             return None
 
-        branch = repository.get("default_branch") or self.get_default_branch(full_name)
+        branch = (
+            repository.get("default_branch")
+            or self.get_default_branch(full_name)
+        )
+        raw_url = (
+            f"https://raw.githubusercontent.com/{full_name}/"
+            f"{quote(branch, safe='')}/{quote(path, safe='/')}"
+        )
+
+        try:
+            response = self._get(
+                raw_url,
+                headers=self.raw_headers,
+                timeout=config.REQUEST_TIMEOUT,
+            )
+        except requests.RequestException:
+            response = None
+
+        if (
+            response is not None
+            and response.status_code == 200
+            and not self._response_too_large(response)
+        ):
+            return self._decode_content(response)
+
+        return self.fetch_file_from_api(full_name, path, branch)
+
+    def fetch_file_from_api(
+        self,
+        full_name: str,
+        path: str,
+        branch: str,
+    ) -> Optional[str]:
         url = (
             f"{config.GITHUB_API_BASE}/repos/{full_name}/contents/"
             f"{quote(path, safe='/')}"
         )
 
-        try:
-            response = requests.get(
-                url,
-                headers=self.raw_headers,
-                params={"ref": branch},
-                timeout=30,
-            )
-        except requests.RequestException as exc:
-            print(f"File download failed: {full_name}/{path}: {exc}")
-            return None
+        for attempt in range(3):
+            self._wait_for_limit("core", config.MIN_REMAINING_REQUESTS)
+            try:
+                response = self._get(
+                    url,
+                    headers=self.raw_headers,
+                    params={"ref": branch},
+                    timeout=config.REQUEST_TIMEOUT,
+                )
+            except requests.RequestException:
+                return None
 
-        if response.status_code in (403, 429):
-            print(f"File API rate limited for {full_name}/{path}")
-            time.sleep(config.ABUSE_WAIT_TIME)
-            return None
-
-        if response.status_code != 200:
-            print(f"File download HTTP {response.status_code}: {full_name}/{path}")
-            return None
-
-        content_length = response.headers.get("Content-Length")
-        if content_length and int(content_length) > config.MAX_FILE_BYTES:
-            print(f"Skip large file: {full_name}/{path}")
-            return None
-
-        content_type = response.headers.get("Content-Type", "")
-        if "application/json" in content_type and response.text.lstrip().startswith("{"):
-            payload = response.json()
-            encoded = payload.get("content", "")
-            if payload.get("encoding") == "base64":
-                try:
-                    return base64.b64decode(encoded).decode("utf-8", errors="replace")
-                except (ValueError, TypeError):
+            self._update_rate_state(response)
+            if response.status_code == 200:
+                if self._response_too_large(response):
                     return None
-            download_url = payload.get("download_url")
-            if download_url:
-                raw = requests.get(download_url, headers=self.raw_headers, timeout=30)
-                if raw.status_code == 200:
-                    return raw.text
+                decoded = self._decode_content(response)
+                if decoded is not None:
+                    return decoded
+
+                try:
+                    download_url = response.json().get("download_url")
+                except ValueError:
+                    download_url = None
+                if download_url:
+                    try:
+                        raw = self._get(
+                            download_url,
+                            headers=self.raw_headers,
+                            timeout=config.REQUEST_TIMEOUT,
+                        )
+                    except requests.RequestException:
+                        return None
+                    if raw.status_code == 200:
+                        return raw.text
+                return None
+
+            if response.status_code in (403, 429) and attempt < 2:
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    time.sleep(min(float(retry_after), 300))
+                else:
+                    self._wait_for_limit("core", config.MIN_REMAINING_REQUESTS)
+                continue
+
             return None
 
-        return response.text
+        return None
 
-    def search_github(self, query: str) -> int:
-        added = 0
-        query_files = 0
+    def _search_page(self, query: str, page: int):
+        params = {"q": query, "per_page": config.PER_PAGE, "page": page}
         url = f"{config.GITHUB_API_BASE}/search/code"
 
-        for page in range(1, config.MAX_PAGES + 1):
-            if self.file_count >= config.MAX_FILES_PER_SCAN:
-                return added
-            if query_files >= config.MAX_FILES_PER_QUERY:
-                return added
-
-            self.check_rate_limit()
-            params = {"q": query, "per_page": config.PER_PAGE, "page": page}
+        for attempt in range(3):
+            self._wait_for_limit("search", 1)
             try:
-                response = requests.get(
+                response = self._get(
                     url,
                     headers=self.search_headers,
                     params=params,
-                    timeout=20,
+                    timeout=config.REQUEST_TIMEOUT,
                 )
             except requests.RequestException as exc:
-                print(f"Search failed: {query}: {exc}")
-                return added
+                print(f"Search request failed: {query}: {exc}")
+                return None
 
+            self._update_rate_state(response)
+            if response.status_code == 200:
+                return response
             if response.status_code == 401:
                 raise RuntimeError(
-                    "GitHub search returned HTTP 401: token is invalid or missing"
+                    "GitHub search returned HTTP 401: token is invalid"
                 )
-
-            if response.status_code == 403:
-                print("GitHub abuse detection triggered, waiting...")
-                time.sleep(config.ABUSE_WAIT_TIME)
-                continue
-
             if response.status_code == 422:
                 print(f"Invalid search query: {query}")
-                return added
+                return None
+            if response.status_code in (403, 429) and attempt < 2:
+                retry_after = response.headers.get("Retry-After")
+                if retry_after:
+                    time.sleep(min(float(retry_after), 300))
+                else:
+                    self._wait_for_limit("search", 1)
+                    time.sleep(10 * (attempt + 1))
+                continue
 
-            if response.status_code != 200:
-                print(f"Search HTTP {response.status_code}: {query}")
-                return added
+            print(f"Search HTTP {response.status_code}: {query}")
+            return None
+
+        return None
+
+    def collect_query_items(self, query: str) -> List[Dict]:
+        items: List[Dict] = []
+        total_count = None
+
+        for page in range(1, config.MAX_PAGES + 1):
+            remaining_query = config.MAX_FILES_PER_QUERY - len(items)
+            if remaining_query <= 0:
+                break
+
+            response = self._search_page(query, page)
+            if response is None:
+                break
 
             payload = response.json()
-            items = payload.get("items", [])
             if page == 1:
-                print(
-                    f"  Search matches reported by GitHub: "
-                    f"{payload.get('total_count', 'unknown')}"
-                )
-            if not items:
-                return added
+                total_count = payload.get("total_count", "unknown")
+                print(f"  GitHub matches reported: {total_count}")
 
-            for item in items:
-                if self.file_count >= config.MAX_FILES_PER_SCAN:
-                    return added
-                if query_files >= config.MAX_FILES_PER_QUERY:
-                    return added
+            page_items = payload.get("items", [])
+            if not page_items:
+                break
 
+            for item in page_items:
                 repository = item.get("repository") or {}
                 full_name = repository.get("full_name", "unknown")
                 path = item.get("path", "unknown")
                 file_key = f"{full_name}:{path}"
-                if file_key in self.visited_files:
-                    continue
-                self.visited_files.add(file_key)
-                query_files += 1
 
-                fragments = [
-                    match.get("fragment", "")
-                    for match in item.get("text_matches", [])
-                ]
-                self.file_count += 1
-                for fragment in fragments:
-                    added += self.consume(fragment, f"{full_name}/{path}")
+                with self._lock:
+                    if file_key in self.visited_files:
+                        continue
+                    if self.file_count >= config.MAX_FILES_PER_SCAN:
+                        break
+                    self.visited_files.add(file_key)
+                    self.file_count += 1
 
-                # Search fragments truncate long refresh tokens, so parse the
-                # complete matching file as well.
-                content = self.fetch_file(item)
-                if content:
-                    added += self.consume(content, f"{full_name}/{path}")
-
-                if query_files >= config.MAX_FILES_PER_QUERY:
+                items.append(item)
+                if len(items) >= config.MAX_FILES_PER_QUERY:
                     break
 
-                time.sleep(random.uniform(
-                    config.REQUEST_DELAY_MIN,
-                    config.REQUEST_DELAY_MAX,
-                ))
-
+            if len(items) >= config.MAX_FILES_PER_QUERY:
+                break
             if "next" not in response.links:
                 break
 
@@ -302,7 +438,55 @@ class KeyScanner:
                 config.REQUEST_DELAY_MAX,
             ))
 
+        return items
+
+    def process_item(self, item: Dict) -> int:
+        repository = item.get("repository") or {}
+        full_name = repository.get("full_name", "unknown")
+        path = item.get("path", "unknown")
+        source = f"{full_name}/{path}"
+        added = 0
+
+        fragments = [
+            match.get("fragment", "")
+            for match in item.get("text_matches", [])
+        ]
+        for fragment in fragments:
+            added += self.consume(fragment, source)
+
+        content = self.fetch_file(item)
+        if content:
+            added += self.consume(content, source)
         return added
+
+    def process_items_parallel(self, items: Iterable[Dict]) -> int:
+        item_list = list(items)
+        if not item_list:
+            return 0
+
+        added = 0
+        workers = min(config.DOWNLOAD_WORKERS, len(item_list))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(self.process_item, item): item
+                for item in item_list
+            }
+            for future in as_completed(futures):
+                try:
+                    added += future.result()
+                except Exception as exc:
+                    item = futures[future]
+                    repo = (item.get("repository") or {}).get("full_name", "?")
+                    path = item.get("path", "?")
+                    print(f"File processing failed: {repo}/{path}: {exc}")
+        return added
+
+    def search_github(self, query: str) -> int:
+        items = self.collect_query_items(query)
+        if not items:
+            return 0
+        print(f"  Processing {len(items)} unique files")
+        return self.process_items_parallel(items)
 
     def scan(self) -> Dict[str, object]:
         print("Scanning GitHub for leaked account lines...")
@@ -312,18 +496,21 @@ class KeyScanner:
         total_added = 0
 
         for query in tqdm(queries, desc="Queries"):
-            if self.file_count >= config.MAX_FILES_PER_SCAN:
-                tqdm.write(
-                    f"Global file limit reached: {config.MAX_FILES_PER_SCAN}"
-                )
-                break
+            with self._lock:
+                if self.file_count >= config.MAX_FILES_PER_SCAN:
+                    tqdm.write(
+                        f"Global file limit reached: "
+                        f"{config.MAX_FILES_PER_SCAN}"
+                    )
+                    break
             tqdm.write(f"Search: {query}")
             total_added += self.search_github(query)
 
         elapsed = time.time() - start_time
         print(
-            f"Scan complete: {len(self.found_keys)} unique lines, "
-            f"{self.file_count} files, {elapsed:.2f}s"
+            f"Scan complete: {total_added} new lines, "
+            f"{len(self.found_keys)} seen, {self.file_count} files, "
+            f"{elapsed:.2f}s"
         )
         return {
             "total_queries": len(queries),
