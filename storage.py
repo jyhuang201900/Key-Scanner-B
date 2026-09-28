@@ -4,6 +4,7 @@ import threading
 from typing import Dict, Iterable, List
 
 import config
+from line_format import normalize_account_line
 
 
 class Storage:
@@ -17,11 +18,16 @@ class Storage:
             return []
 
         with open(self.path, "r", encoding="utf-8", errors="replace") as handle:
-            return [line.strip() for line in handle if line.strip()]
+            lines = []
+            for line in handle:
+                clean = normalize_account_line(line)
+                if clean:
+                    lines.append(clean)
+            return lines
 
     def append_line(self, line: str) -> bool:
-        """Append one unique line immediately and return True when written."""
-        clean = line.strip()
+        """Append one canonical line immediately and return True when written."""
+        clean = normalize_account_line(line)
         if not clean:
             return False
 

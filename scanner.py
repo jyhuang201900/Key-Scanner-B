@@ -10,10 +10,11 @@ import requests
 from tqdm import tqdm
 
 import config
+from line_format import normalize_account_line
 
 
 ACCOUNT_PATTERN = re.compile(
-    r"(?P<email>[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"(?P<email>[A-Za-z0-9._%+-]+@"
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+)"
     + re.escape(config.ACCOUNT_SEPARATOR)
@@ -22,7 +23,10 @@ ACCOUNT_PATTERN = re.compile(
     + r"(?P<client_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
     + r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
     + re.escape(config.ACCOUNT_SEPARATOR)
-    + rf"(?P<refresh_token>[^\s\"'<>`]{{{config.MIN_REFRESH_TOKEN_LENGTH},}})"
+    + (
+        rf"(?P<refresh_token>[A-Za-z0-9._~!@#$%^&*+/=-]"
+        rf"{{{config.MIN_REFRESH_TOKEN_LENGTH},}})"
+    )
 )
 
 
@@ -108,8 +112,8 @@ class KeyScanner:
     def extract_lines(content: str) -> Set[str]:
         lines = set()
         for match in ACCOUNT_PATTERN.finditer(content):
-            line = match.group(0).strip()
-            if line.count(config.ACCOUNT_SEPARATOR) == 3:
+            line = normalize_account_line(match.group(0))
+            if line:
                 lines.add(line)
         return lines
 
