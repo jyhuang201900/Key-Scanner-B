@@ -68,3 +68,24 @@ jobs:
             probe_results.json
           if-no-files-found: warn
           retention-days: 14
+
+      # Commit the report so results are readable without signing in to the
+      # Actions UI, and so each probe run leaves an auditable record.
+      - name: Commit report
+        if: always()
+        run: |
+          if [ ! -f probe_report.md ]; then
+            echo "no report produced" >&2
+            exit 0
+          fi
+          mkdir -p probe-reports
+          cp probe_report.md "probe-reports/${{ github.run_number }}.md"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "probe-reports/${{ github.run_number }}.md"
+          if git diff --cached --quiet; then
+            echo "report unchanged"
+          else
+            git commit -m "probe: report from run ${{ github.run_number }}"
+            git push
+          fi
