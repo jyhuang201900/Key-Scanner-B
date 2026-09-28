@@ -16,3 +16,5 @@ output/
 *.log
 results.txt
 scan_stats.json
+probe_results.json
+probe_report.md

@@ -1,0 +1,61 @@
+name: Probe Search Queries
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/probe.yml"
+      - "probe.py"
+      - "scanner.py"
+      - "line_format.py"
+
+concurrency:
+  group: outlook-leak-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run probe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python probe.py
+
+      - name: Add summary
+        if: always()
+        run: |
+          {
+            echo "## Query probe"
+            echo ""
+            cat probe_report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: query-probe-${{ github.run_number }}
+          path: |
+            probe_report.md
+            probe_results.json
+          if-no-files-found: warn
+          retention-days: 14
