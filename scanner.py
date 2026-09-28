@@ -203,10 +203,13 @@ class KeyScanner:
 
     def search_github(self, query: str) -> int:
         added = 0
+        query_files = 0
         url = f"{config.GITHUB_API_BASE}/search/code"
 
         for page in range(1, config.MAX_PAGES + 1):
             if self.file_count >= config.MAX_FILES_PER_SCAN:
+                return added
+            if query_files >= config.MAX_FILES_PER_QUERY:
                 return added
 
             self.check_rate_limit()
@@ -240,12 +243,20 @@ class KeyScanner:
                 print(f"Search HTTP {response.status_code}: {query}")
                 return added
 
-            items = response.json().get("items", [])
+            payload = response.json()
+            items = payload.get("items", [])
+            if page == 1:
+                print(
+                    f"  Search matches reported by GitHub: "
+                    f"{payload.get('total_count', 'unknown')}"
+                )
             if not items:
                 return added
 
             for item in items:
                 if self.file_count >= config.MAX_FILES_PER_SCAN:
+                    return added
+                if query_files >= config.MAX_FILES_PER_QUERY:
                     return added
 
                 repository = item.get("repository") or {}
@@ -255,6 +266,7 @@ class KeyScanner:
                 if file_key in self.visited_files:
                     continue
                 self.visited_files.add(file_key)
+                query_files += 1
 
                 fragments = [
                     match.get("fragment", "")
@@ -269,6 +281,9 @@ class KeyScanner:
                 content = self.fetch_file(item)
                 if content:
                     added += self.consume(content, f"{full_name}/{path}")
+
+                if query_files >= config.MAX_FILES_PER_QUERY:
+                    break
 
                 time.sleep(random.uniform(
                     config.REQUEST_DELAY_MIN,
@@ -293,6 +308,11 @@ class KeyScanner:
         total_added = 0
 
         for query in tqdm(queries, desc="Queries"):
+            if self.file_count >= config.MAX_FILES_PER_SCAN:
+                tqdm.write(
+                    f"Global file limit reached: {config.MAX_FILES_PER_SCAN}"
+                )
+                break
             tqdm.write(f"Search: {query}")
             total_added += self.search_github(query)
 
