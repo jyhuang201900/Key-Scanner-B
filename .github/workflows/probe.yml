@@ -40,8 +40,8 @@ jobs:
       - name: Run probe
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PROBE_DEADLINE: "900"
-          PROBE_SAMPLE: "6"
+          PROBE_DEADLINE: "420"
+          PROBE_SAMPLE: "2"
         run: python probe.py
 
       - name: Add summary

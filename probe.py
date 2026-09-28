@@ -30,20 +30,20 @@ from scanner import KeyScanner, item_ref_candidates
 # (label, query). Kept small on purpose: every query costs a search call
 # plus a sample of downloads.
 CANDIDATES: List[Tuple[str, str]] = [
-    ("A complete", "MsaArtifacts"),
-    ("A complete", "MsaArtifacts hotmail"),
-    ("A complete", "MsaArtifacts outlook"),
-    ("B filename", "hotmail filename:results"),
-    ("B filename", "outlook filename:results"),
-    ("B filename", "hotmail filename:accounts"),
-    ("B filename", "outlook filename:accounts"),
-    ("B filename", "hotmail filename:token"),
-    ("B filename", "outlook filename:token"),
-    ("B filename", "hotmail filename:email"),
-    ("B filename", "outlook filename:email"),
-    ("C cooccur", "hotmail refreshtoken"),
-    ("C cooccur", "outlook refreshtoken"),
-    ("C cooccur", "hotmail clientid"),
+    # Fingerprint-shape test.
+    #
+    # GitHub code search strips `. , : ; / \ ' " = * ! ? # $ & + ^ | ~ < > ( )
+    # { } [ ] @` from query terms. The question this set answers is whether
+    # stripping is applied consistently to both the query and the indexed
+    # content. If it is, `0UMsaArtifactsC` (manually pre-stripped) should
+    # return roughly the same total_count as the `MsaArtifacts` baseline.
+    # If it is not, the longer fingerprints are unusable as search terms.
+    ("base", "MsaArtifacts"),
+    ("raw-symbols", "0.U.MsaArtifacts.-C"),
+    ("quoted", '"0.U.MsaArtifacts.-C"'),
+    ("pre-stripped", "0UMsaArtifactsC"),
+    ("longer-ctx", "M.C539_BAY.0.U.MsaArtifacts"),
+    ("tail-strip", "MsaArtifactsC"),
 ]
 
 SAMPLE_SIZE = int(os.getenv("PROBE_SAMPLE", "6"))
@@ -341,6 +341,9 @@ def verdict(row: Dict) -> str:
 def render(results: List[Dict], elapsed: float, deadline: int) -> str:
     ok = [r for r in results if not r.get("error")]
     ranked = sorted(ok, key=lambda r: r.get("rows", 0), reverse=True)
+    by_count = sorted(
+        ok, key=lambda r: (r.get("total_count") or 0), reverse=True
+    )
 
     out = [
         "# Search Query Probe",
@@ -349,6 +352,20 @@ def render(results: List[Dict], elapsed: float, deadline: int) -> str:
         f"- queries completed: {len(results)}/{len(CANDIDATES)}",
         f"- sample per query: {SAMPLE_SIZE} files",
         f"- dense threshold: {DENSE_LINES} rows/file",
+        "",
+        "## By total_count (search-space size)",
+        "",
+        "| total_count | capped | variant | query |",
+        "|---|---|---|---|",
+    ]
+    for row in by_count:
+        out.append(
+            f"| {row.get('total_count')} | "
+            f"{'yes' if row.get('total_count', 0) and row.get('total_count', 0) > RESULT_CAP else 'no'} | "
+            f"{row.get('label','')} | `{row.get('query','')}` |"
+        )
+
+    out += [
         "",
         "## Ranked by measured rows",
         "",
