@@ -3,7 +3,17 @@ import os
 
 
 # GitHub
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+def _github_token() -> str:
+    raw = os.getenv("GITHUB_TOKEN", "").strip().strip('"').strip("'")
+    lower = raw.lower()
+    if lower.startswith("bearer "):
+        raw = raw[7:].strip()
+    elif lower.startswith("token "):
+        raw = raw[6:].strip()
+    return raw
+
+
+GITHUB_TOKEN = _github_token()
 GITHUB_API_BASE = "https://api.github.com"
 MAX_PAGES = int(os.getenv("MAX_PAGES", "3"))
 PER_PAGE = 100

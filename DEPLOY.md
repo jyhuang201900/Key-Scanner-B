@@ -4,32 +4,11 @@
 
 把本项目推到你的 GitHub 仓库。
 
-## 2. 添加 Token
+## 2. Token
 
-进入：
+工作流使用 GitHub Actions 内置的 `github.token`，不需要添加 Secret。
 
-```text
-Settings -> Secrets and variables -> Actions -> New repository secret
-```
-
-添加：
-
-```text
-Name: GH_TOKEN
-Value: ghp_xxx
-```
-
-建议使用 classic token，并勾选：
-
-```text
-public_repo
-```
-
-私有仓库扫描使用：
-
-```text
-repo
-```
+如果以后需要扫描更多私有资源，再改用具备 `repo` 权限的 PAT。
 
 ## 3. 运行
 

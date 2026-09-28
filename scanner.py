@@ -33,13 +33,13 @@ class KeyScanner:
 
         self.on_found = on_found
         self.search_headers = {
-            "Authorization": f"token {config.GITHUB_TOKEN}",
+            "Authorization": f"Bearer {config.GITHUB_TOKEN}",
             "Accept": "application/vnd.github.text-match+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "outlook-leak-line-scanner",
         }
         self.raw_headers = {
-            "Authorization": f"token {config.GITHUB_TOKEN}",
+            "Authorization": f"Bearer {config.GITHUB_TOKEN}",
             "Accept": "application/vnd.github.raw",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "outlook-leak-line-scanner",
@@ -49,6 +49,38 @@ class KeyScanner:
         self.branch_cache: Dict[str, str] = {}
         self.file_count = 0
 
+    def validate_auth(self) -> None:
+        """Fail fast when the GitHub token is invalid or unauthorized."""
+        try:
+            response = requests.get(
+                f"{config.GITHUB_API_BASE}/rate_limit",
+                headers=self.search_headers,
+                timeout=15,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(f"GitHub authentication check failed: {exc}") from exc
+
+        if response.status_code == 401:
+            raise RuntimeError(
+                "GitHub API authentication failed (401). "
+                "Use the built-in github.token or a valid PAT."
+            )
+        if response.status_code == 403:
+            raise RuntimeError(
+                "GitHub API authentication failed (403). "
+                "Check token permissions or rate limits."
+            )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"GitHub authentication check returned HTTP {response.status_code}"
+            )
+
+        search_rate = response.json().get("resources", {}).get("search", {})
+        print(
+            "GitHub authentication OK, "
+            f"search remaining: {search_rate.get('remaining', 'unknown')}"
+        )
+
     def check_rate_limit(self) -> None:
         try:
             response = requests.get(
@@ -56,6 +88,10 @@ class KeyScanner:
                 headers=self.search_headers,
                 timeout=15,
             )
+            if response.status_code == 401:
+                raise RuntimeError(
+                    "GitHub API authentication failed (401): invalid token"
+                )
             response.raise_for_status()
             rate = response.json()["resources"]["search"]
             remaining = rate["remaining"]
@@ -63,6 +99,8 @@ class KeyScanner:
                 wait = max(0, rate["reset"] - time.time()) + 5
                 print(f"GitHub search rate limit reached, waiting {wait:.0f}s")
                 time.sleep(wait)
+        except RuntimeError:
+            raise
         except Exception as exc:
             print(f"Rate-limit check failed: {exc}")
 
@@ -184,6 +222,11 @@ class KeyScanner:
                 print(f"Search failed: {query}: {exc}")
                 return added
 
+            if response.status_code == 401:
+                raise RuntimeError(
+                    "GitHub search returned HTTP 401: token is invalid or missing"
+                )
+
             if response.status_code == 403:
                 print("GitHub abuse detection triggered, waiting...")
                 time.sleep(config.ABUSE_WAIT_TIME)
@@ -244,6 +287,7 @@ class KeyScanner:
 
     def scan(self) -> Dict[str, object]:
         print("Scanning GitHub for leaked account lines...")
+        self.validate_auth()
         queries: List[str] = list(config.SEARCH_QUERIES)
         start_time = time.time()
         total_added = 0

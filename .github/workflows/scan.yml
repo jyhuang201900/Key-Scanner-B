@@ -1,6 +1,16 @@
 name: Scan Outlook Leak Lines
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/scan.yml"
+      - "cli.py"
+      - "config.py"
+      - "scanner.py"
+      - "storage.py"
+      - "requirements.txt"
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
@@ -26,7 +36,7 @@ jobs:
 
       - name: Scan
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: python cli.py scan
 
       - name: Add summary

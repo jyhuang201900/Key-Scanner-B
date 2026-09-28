@@ -22,12 +22,12 @@ results.txt
 
 运行方式：
 
-1. 在仓库 `Settings -> Secrets and variables -> Actions` 添加 `GH_TOKEN`。
-2. `GH_TOKEN` 使用有 `public_repo` 或 `repo` 权限的 GitHub Token。
-3. 打开 `Actions -> Scan Outlook Leak Lines -> Run workflow`。
-4. 扫描完成后在本次运行的 `Artifacts` 下载 `outlook-results-*`。
+1. 打开 `Actions -> Scan Outlook Leak Lines`。
+2. 点击 `Run workflow`。
+3. 扫描完成后在本次运行的 `Artifacts` 下载 `outlook-results-*`。
 
-工作流默认每 6 小时运行一次。
+工作流默认使用 GitHub Actions 内置的 `github.token`，不需要额外配置 Secret。
+默认每 6 小时运行一次，修改扫描器代码后也会自动运行一次。
 
 ## 本地运行
 
