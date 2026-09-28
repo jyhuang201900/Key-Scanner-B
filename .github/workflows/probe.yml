@@ -18,7 +18,9 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # probe.py has its own 15 min wall-clock deadline and flushes partial
+    # results after every query, so the job timeout is a safety net only.
+    timeout-minutes: 22
     permissions:
       contents: read
 
@@ -38,6 +40,8 @@ jobs:
       - name: Run probe
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PROBE_DEADLINE: "900"
+          PROBE_SAMPLE: "6"
         run: python probe.py
 
       - name: Add summary
@@ -46,7 +50,12 @@ jobs:
           {
             echo "## Query probe"
             echo ""
-            cat probe_report.md
+            if [ -f probe_report.md ]; then
+              cat probe_report.md
+            else
+              echo "probe_report.md was not produced; check job logs."
+              [ -f probe_results.json ] && cat probe_results.json
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
